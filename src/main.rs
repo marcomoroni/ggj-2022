@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use rand::{distributions::Uniform, prelude::*};
+use rand::prelude::*;
 
 const BACKGROUND_COLOR: Color = Color::rgb(0.05, 0.05, 0.05);
 const TILES_LEFT: [&str; 6] = [
@@ -23,15 +23,26 @@ const fn nature_count() -> usize {
     TILES_LEFT.len()
 }
 
+const CARDS_GAP: f32 = 140.;
+
 enum MatchState {
     Ready,
-    Playing {
-        left_col: Vec<Entity>,
-        right_col: Vec<Entity>,
-    },
+    Playing(MatchStatePlaying),
+}
+
+struct MatchStatePlaying {
+    left_col: Vec<TileData>,
+    right_col: Vec<TileData>,
+    cards: Vec<CardData>,
 }
 
 #[derive(Clone, Copy)]
+struct TileData {
+    id: Entity,
+    nature: TileNature,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
 struct TileNature(usize);
 
 #[derive(Clone, Copy)]
@@ -41,9 +52,153 @@ enum TileSide {
 }
 
 #[derive(Component, Clone, Copy)]
-struct Tile {
-    nature: TileNature,
-    side: TileSide,
+struct Tile;
+
+#[derive(Clone, Copy)]
+enum CycleDirection {
+    Up,
+    Down,
+}
+
+#[derive(Clone, Copy)]
+enum Action {
+    SwapFirstAndLast {
+        side: TileSide,
+    },
+    SwapTwoAdjacent {
+        top: usize,
+        side: TileSide,
+    },
+    SwapTwoNatures {
+        nature_a: TileNature,
+        nature_b: TileNature,
+        side: TileSide,
+    },
+    Cycle {
+        times: i32,
+        direction: CycleDirection,
+        side: TileSide,
+    },
+}
+
+fn apply_inverse_action<'a>(
+    action: &Action,
+    left_col: &'a mut Vec<BuildingTileData>,
+    right_col: &'a mut Vec<BuildingTileData>,
+) {
+    match action {
+        Action::SwapFirstAndLast { side } => {
+            let col = match side {
+                TileSide::Left => left_col,
+                TileSide::Right => right_col,
+            };
+            let col_len = col.len();
+            col.swap(0, col_len - 1);
+        }
+        Action::SwapTwoAdjacent { top, side } => {
+            let bottom = top + 1;
+            let col = match side {
+                TileSide::Left => left_col,
+                TileSide::Right => right_col,
+            };
+            col.swap(*top, bottom);
+        }
+        Action::SwapTwoNatures {
+            nature_a,
+            nature_b,
+            side,
+        } => {
+            let col = match side {
+                TileSide::Left => left_col,
+                TileSide::Right => right_col,
+            };
+            let index_a = col.iter().position(|n| n.nature == *nature_a).unwrap();
+            let index_b = col.iter().position(|n| n.nature == *nature_b).unwrap();
+            col.swap(index_a, index_b);
+        }
+        Action::Cycle {
+            times,
+            direction,
+            side,
+        } => {
+            let col = match side {
+                TileSide::Left => left_col,
+                TileSide::Right => right_col,
+            };
+            match direction {
+                CycleDirection::Up => {
+                    col.rotate_right(*times as usize);
+                }
+                CycleDirection::Down => {
+                    col.rotate_left(*times as usize);
+                }
+            }
+        }
+    }
+}
+
+fn apply_action<'a>(
+    action: &Action,
+    mut left_col: &'a mut Vec<BuildingTileData>,
+    mut right_col: &'a mut Vec<BuildingTileData>,
+) {
+    match action {
+        Action::SwapFirstAndLast { side } => {
+            let col = match side {
+                TileSide::Left => &mut left_col,
+                TileSide::Right => &mut right_col,
+            };
+            let col_len = col.len();
+            col.swap(0, col_len - 1);
+        }
+        Action::SwapTwoAdjacent { top, side } => {
+            let bottom = top + 1;
+            let col = match side {
+                TileSide::Left => &mut left_col,
+                TileSide::Right => &mut right_col,
+            };
+            col.swap(*top, bottom);
+        }
+        Action::SwapTwoNatures {
+            nature_a,
+            nature_b,
+            side,
+        } => {
+            let col = match side {
+                TileSide::Left => &mut left_col,
+                TileSide::Right => &mut right_col,
+            };
+            let index_a = col.iter().position(|x| x.nature == *nature_a).unwrap();
+            let index_b = col.iter().position(|x| x.nature == *nature_b).unwrap();
+            col.swap(index_a, index_b);
+        }
+        Action::Cycle {
+            times,
+            direction,
+            side,
+        } => {
+            let col = match side {
+                TileSide::Left => &mut left_col,
+                TileSide::Right => &mut right_col,
+            };
+            match direction {
+                CycleDirection::Up => {
+                    col.rotate_left(*times as usize);
+                }
+                CycleDirection::Down => {
+                    col.rotate_right(*times as usize);
+                }
+            }
+        }
+    }
+}
+
+#[derive(Component)]
+struct Card;
+
+struct CardData {
+    action: Action,
+    id: Entity,
 }
 
 struct StartMatchEvent;
@@ -88,8 +243,21 @@ fn spawn_tile(
             }),
             ..Default::default()
         })
-        .insert(Tile { nature, side })
+        .insert(Tile)
         .id()
+}
+
+fn rand_tile_side(rng: &mut ThreadRng) -> TileSide {
+    match rng.gen_range(0usize, 2usize) {
+        0 => TileSide::Left,
+        1 => TileSide::Right,
+        _ => unreachable!(),
+    }
+}
+
+struct BuildingTileData {
+    id: Option<Entity>,
+    nature: TileNature,
 }
 
 fn start_match(
@@ -111,35 +279,149 @@ fn start_match(
             tiles
         };
 
-        let mut left_col = Vec::new();
-        let mut right_col = Vec::new();
-        let tot_col_height = TILE_POS_Y_GAP * ((tiles_count - 1) as f32);
-        for (row, nature) in tiles_order.iter().enumerate() {
-            let pos_y = (tot_col_height / ((tiles_count - 1) as f32) * (row as f32))
-                - (tot_col_height / 2.);
-            left_col.push(spawn_tile(
-                TileSide::Left,
-                *nature,
-                pos_y,
-                &mut commands,
-                &asset_server,
-            ));
-            right_col.push(spawn_tile(
-                TileSide::Right,
-                *nature,
-                pos_y,
-                &mut commands,
-                &asset_server,
-            ));
+        let mut build_left_col = Vec::new();
+        let mut build_right_col = Vec::new();
+        for nature in tiles_order.iter() {
+            build_left_col.push(BuildingTileData {
+                nature: *nature,
+                id: None,
+            });
+            build_right_col.push(BuildingTileData {
+                nature: *nature,
+                id: None,
+            });
         }
 
         // Generate cards.
-        // ...
+        let card_count = 5;
+        let card_actions = {
+            let mut rng = rand::thread_rng();
+            let mut cards = Vec::new();
+            for _ in 0..card_count {
+                cards.push(match rng.gen_range(0usize, 4usize) {
+                    0 => Action::SwapFirstAndLast {
+                        side: rand_tile_side(&mut rng),
+                    },
+                    1 => Action::SwapTwoAdjacent {
+                        top: rng.gen_range(0, tiles_order.len() - 1),
+                        side: rand_tile_side(&mut rng),
+                    },
+                    2 => {
+                        let mut pool = tiles_order.clone();
+                        let nature_a = pool.swap_remove(rng.gen_range(0, pool.len()));
+                        let nature_b = pool.swap_remove(rng.gen_range(0, pool.len()));
+                        Action::SwapTwoNatures {
+                            nature_a,
+                            nature_b,
+                            side: rand_tile_side(&mut rng),
+                        }
+                    }
+                    3 => Action::Cycle {
+                        times: rng.gen_range(1, 4),
+                        direction: match rng.gen_range(0usize, 2usize) {
+                            0 => CycleDirection::Up,
+                            1 => CycleDirection::Down,
+                            _ => unreachable!(),
+                        },
+                        side: rand_tile_side(&mut rng),
+                    },
+                    _ => unreachable!(),
+                })
+            }
+            cards
+        };
 
-        *match_state = MatchState::Playing {
+        // Apply some inverse cards_effect.
+        let applied_card_count = 3;
+        assert!(applied_card_count <= card_count);
+        {
+            let mut rng = rand::thread_rng();
+            let mut cards_to_apply_pool = card_actions.clone();
+            for _ in 0..applied_card_count {
+                let card_to_apply =
+                    cards_to_apply_pool.swap_remove(rng.gen_range(0, cards_to_apply_pool.len()));
+                apply_inverse_action(&card_to_apply, &mut build_left_col, &mut build_right_col);
+            }
+        }
+
+        let mut left_col = Vec::new();
+        let mut right_col = Vec::new();
+        let tot_col_height = TILE_POS_Y_GAP * ((tiles_count - 1) as f32);
+        for (i, (l, r)) in build_left_col
+            .iter()
+            .zip(build_right_col.iter())
+            .enumerate()
+        {
+            let pos_y =
+                (tot_col_height / ((tiles_count - 1) as f32) * (i as f32)) - (tot_col_height / 2.);
+            left_col.push(TileData {
+                id: spawn_tile(
+                    TileSide::Left,
+                    l.nature,
+                    pos_y,
+                    &mut commands,
+                    &asset_server,
+                ),
+                nature: l.nature,
+            });
+            right_col.push(TileData {
+                id: spawn_tile(
+                    TileSide::Right,
+                    r.nature,
+                    pos_y,
+                    &mut commands,
+                    &asset_server,
+                ),
+                nature: r.nature,
+            });
+        }
+
+        // Spawn cards.
+        let tot_card_len = CARDS_GAP * ((card_count - 1) as f32);
+        let mut cards = Vec::new();
+        for (i, card_action) in card_actions.iter().enumerate() {
+            cards.push(CardData {
+                action: card_action.clone(),
+                id: commands
+                    .spawn_bundle(SpriteBundle {
+                        transform: Transform {
+                            translation: Vec3::new(
+                                (tot_card_len / ((card_count - 1) as f32) * (i as f32))
+                                    - (tot_card_len / 2.),
+                                -400.,
+                                0.,
+                            ),
+                            ..Default::default()
+                        },
+                        sprite: Sprite {
+                            custom_size: Some(Vec2::new(160., 160.)),
+                            ..Default::default()
+                        },
+                        texture: asset_server.load("card_bg.png"),
+                        ..Default::default()
+                    })
+                    .insert(Card)
+                    .with_children(|parent| {
+                        // ...
+                    })
+                    .id(),
+            });
+        }
+
+        *match_state = MatchState::Playing(MatchStatePlaying {
             left_col,
             right_col,
-        };
+            cards,
+        });
+    }
+}
+
+fn handle_input(keyboard_input: Res<Input<KeyCode>>) {
+    if keyboard_input.just_pressed(KeyCode::Left) {}
+
+    if keyboard_input.just_pressed(KeyCode::Right) {}
+
+    if keyboard_input.just_pressed(KeyCode::Space) || keyboard_input.just_pressed(KeyCode::Return) {
     }
 }
 
@@ -150,5 +432,6 @@ fn main() {
         .insert_resource(ClearColor(BACKGROUND_COLOR))
         .add_startup_system(setup)
         .add_system(start_match)
+        .add_system(handle_input)
         .run();
 }
