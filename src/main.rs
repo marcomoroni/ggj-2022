@@ -511,6 +511,7 @@ fn handle_input(keyboard_input: Res<Input<KeyCode>>, mut match_state: ResMut<Mat
                             Box::new(|x| x.nature),
                         );
 
+                        // Set as used by also storing its order.
                         match_state.cards[*hovered_card].used = Some(
                             match match_state.cards.iter().filter_map(|x| x.used).max() {
                                 Some(i) => i + 1,
