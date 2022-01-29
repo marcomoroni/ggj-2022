@@ -82,10 +82,11 @@ enum Action {
     },
 }
 
-fn apply_inverse_action<'a>(
+fn apply_inverse_action<'a, T>(
     action: &Action,
-    left_col: &'a mut Vec<BuildingTileData>,
-    right_col: &'a mut Vec<BuildingTileData>,
+    left_col: &'a mut Vec<T>,
+    right_col: &'a mut Vec<T>,
+    get_nature: Box<dyn Fn(&T) -> TileNature>,
 ) {
     match action {
         Action::SwapFirstAndLast { side } => {
@@ -113,8 +114,8 @@ fn apply_inverse_action<'a>(
                 TileSide::Left => left_col,
                 TileSide::Right => right_col,
             };
-            let index_a = col.iter().position(|n| n.nature == *nature_a).unwrap();
-            let index_b = col.iter().position(|n| n.nature == *nature_b).unwrap();
+            let index_a = col.iter().position(|n| get_nature(n) == *nature_a).unwrap();
+            let index_b = col.iter().position(|n| get_nature(n) == *nature_b).unwrap();
             col.swap(index_a, index_b);
         }
         Action::Cycle {
@@ -138,10 +139,11 @@ fn apply_inverse_action<'a>(
     }
 }
 
-fn apply_action<'a>(
+fn apply_action<'a, T>(
     action: &Action,
-    mut left_col: &'a mut Vec<BuildingTileData>,
-    mut right_col: &'a mut Vec<BuildingTileData>,
+    mut left_col: &'a mut Vec<T>,
+    mut right_col: &'a mut Vec<T>,
+    get_nature: Box<dyn Fn(&T) -> TileNature>,
 ) {
     match action {
         Action::SwapFirstAndLast { side } => {
@@ -169,8 +171,8 @@ fn apply_action<'a>(
                 TileSide::Left => &mut left_col,
                 TileSide::Right => &mut right_col,
             };
-            let index_a = col.iter().position(|x| x.nature == *nature_a).unwrap();
-            let index_b = col.iter().position(|x| x.nature == *nature_b).unwrap();
+            let index_a = col.iter().position(|x| get_nature(x) == *nature_a).unwrap();
+            let index_b = col.iter().position(|x| get_nature(x) == *nature_b).unwrap();
             col.swap(index_a, index_b);
         }
         Action::Cycle {
@@ -199,6 +201,8 @@ struct Card;
 
 struct CardData {
     action: Action,
+    // If used, store the order in which was used.
+    used: Option<usize>,
     id: Entity,
 }
 
@@ -256,6 +260,7 @@ fn rand_tile_side(rng: &mut ThreadRng) -> TileSide {
     }
 }
 
+#[derive(Clone, Copy)]
 struct BuildingTileData {
     id: Option<Entity>,
     nature: TileNature,
@@ -341,7 +346,12 @@ fn start_match(
             for _ in 0..applied_card_count {
                 let card_to_apply =
                     cards_to_apply_pool.swap_remove(rng.gen_range(0, cards_to_apply_pool.len()));
-                apply_inverse_action(&card_to_apply, &mut build_left_col, &mut build_right_col);
+                apply_inverse_action(
+                    &card_to_apply,
+                    &mut build_left_col,
+                    &mut build_right_col,
+                    Box::new(|x| x.nature),
+                );
             }
         }
 
@@ -383,6 +393,7 @@ fn start_match(
         for (i, card_action) in card_actions.iter().enumerate() {
             cards.push(CardData {
                 action: card_action.clone(),
+                used: None,
                 id: commands
                     .spawn_bundle(SpriteBundle {
                         transform: Transform {
@@ -490,7 +501,24 @@ fn handle_input(keyboard_input: Res<Input<KeyCode>>, mut match_state: ResMut<Mat
     if keyboard_input.just_pressed(KeyCode::Space) || keyboard_input.just_pressed(KeyCode::Return) {
         match match_state.as_mut() {
             MatchState::Playing(match_state) => {
-                // ...
+                if let Some(hovered_card) = &mut match_state.hovered_card {
+                    // If card not used.
+                    if match_state.cards[*hovered_card].used == None {
+                        apply_action(
+                            &match_state.cards[*hovered_card].action,
+                            &mut match_state.left_col,
+                            &mut match_state.right_col,
+                            Box::new(|x| x.nature),
+                        );
+
+                        match_state.cards[*hovered_card].used = Some(
+                            match match_state.cards.iter().filter_map(|x| x.used).max() {
+                                Some(i) => i + 1,
+                                None => 0,
+                            },
+                        );
+                    }
+                }
             }
             _ => (),
         }
