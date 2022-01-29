@@ -1,4 +1,7 @@
+mod physics;
+
 use bevy::prelude::*;
+use physics::spring::SpringSimulation;
 use rand::prelude::*;
 
 const BACKGROUND_COLOR: Color = Color::rgb(0.05, 0.05, 0.05);
@@ -217,25 +220,30 @@ fn setup(mut commands: Commands, mut start_match_event: EventWriter<StartMatchEv
 const TILE_POS_X_ABS: f32 = 200.;
 const TILE_POS_Y_GAP: f32 = 120.;
 
+fn tiles_layout_poss(gap: f32, count: usize) -> (Vec<Vec2>, Vec<Vec2>) {
+    let tot_col_height = gap * ((count - 1) as f32);
+    let mut l = Vec::new();
+    let mut r = Vec::new();
+    for i in 0..count {
+        let pos_y = (tot_col_height / ((count - 1) as f32) * (i as f32)) - (tot_col_height / 2.);
+        l.push(Vec2::new(-TILE_POS_X_ABS, pos_y));
+        r.push(Vec2::new(TILE_POS_X_ABS, pos_y));
+    }
+    (l, r)
+}
+
 // Not a system!
 fn spawn_tile(
     side: TileSide,
     nature: TileNature,
-    pos_y: f32,
+    pos: Vec2,
     commands: &mut Commands,
     asset_server: &Res<AssetServer>,
 ) -> Entity {
     commands
         .spawn_bundle(SpriteBundle {
             transform: Transform {
-                translation: Vec3::new(
-                    match side {
-                        TileSide::Left => -TILE_POS_X_ABS,
-                        TileSide::Right => TILE_POS_X_ABS,
-                    },
-                    pos_y,
-                    0.,
-                ),
+                translation: Vec3::new(pos.x, pos.y, 0.),
                 ..Default::default()
             },
             sprite: Sprite {
@@ -357,19 +365,17 @@ fn start_match(
 
         let mut left_col = Vec::new();
         let mut right_col = Vec::new();
-        let tot_col_height = TILE_POS_Y_GAP * ((tiles_count - 1) as f32);
+        let (tiles_pos_left, tiles_pos_right) = tiles_layout_poss(TILE_POS_Y_GAP, tiles_count);
         for (i, (l, r)) in build_left_col
             .iter()
             .zip(build_right_col.iter())
             .enumerate()
         {
-            let pos_y =
-                (tot_col_height / ((tiles_count - 1) as f32) * (i as f32)) - (tot_col_height / 2.);
             left_col.push(TileData {
                 id: spawn_tile(
                     TileSide::Left,
                     l.nature,
-                    pos_y,
+                    tiles_pos_left[i],
                     &mut commands,
                     &asset_server,
                 ),
@@ -379,7 +385,7 @@ fn start_match(
                 id: spawn_tile(
                     TileSide::Right,
                     r.nature,
-                    pos_y,
+                    tiles_pos_right[i],
                     &mut commands,
                     &asset_server,
                 ),
@@ -463,7 +469,11 @@ fn start_match(
     }
 }
 
-fn handle_input(keyboard_input: Res<Input<KeyCode>>, mut match_state: ResMut<MatchState>) {
+fn handle_input(
+    keyboard_input: Res<Input<KeyCode>>,
+    mut match_state: ResMut<MatchState>,
+    mut update_tiles_position_event: EventWriter<UpdateTilesPosition>,
+) {
     if keyboard_input.just_pressed(KeyCode::Left) {
         match match_state.as_mut() {
             MatchState::Playing(match_state) => {
@@ -518,6 +528,9 @@ fn handle_input(keyboard_input: Res<Input<KeyCode>>, mut match_state: ResMut<Mat
                                 None => 0,
                             },
                         );
+
+                        // Update cards position.
+                        update_tiles_position_event.send(UpdateTilesPosition);
                     }
                 }
             }
@@ -575,15 +588,58 @@ fn update_cursor(
     }
 }
 
+struct UpdateTilesPosition;
+
+fn update_tiles_position(
+    mut update_tiles_position_event: EventReader<UpdateTilesPosition>,
+    match_state: Res<MatchState>,
+    mut q: Query<(Entity, &mut Transform), With<Tile>>,
+) {
+    for _ in update_tiles_position_event.iter() {
+        match match_state.as_ref() {
+            MatchState::Playing(match_state) => {
+                let (tiles_pos_left, tiles_pos_right) =
+                    tiles_layout_poss(TILE_POS_Y_GAP, match_state.left_col.len());
+
+                for (entity, mut transform) in q.iter_mut() {
+                    let (i, _tile_data, side) = match_state
+                        .left_col
+                        .iter()
+                        .zip(match_state.right_col.iter())
+                        .enumerate()
+                        .find_map(|(i, (l, r))| {
+                            if l.id == entity {
+                                Some((i, l, TileSide::Left))
+                            } else if r.id == entity {
+                                Some((i, r, TileSide::Right))
+                            } else {
+                                None
+                            }
+                        })
+                        .unwrap();
+                    let pos = match side {
+                        TileSide::Left => tiles_pos_left[i],
+                        TileSide::Right => tiles_pos_right[i],
+                    };
+                    transform.translation = Vec3::new(pos.x, pos.y, 0.);
+                }
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_event::<StartMatchEvent>()
+        .add_event::<UpdateTilesPosition>()
         .insert_resource(ClearColor(BACKGROUND_COLOR))
         .add_startup_system(setup)
         .add_startup_system(setup_cursor)
         .add_system(start_match)
         .add_system(handle_input)
         .add_system(update_cursor)
+        .add_system(update_tiles_position)
         .run();
 }
