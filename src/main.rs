@@ -34,6 +34,7 @@ struct MatchStatePlaying {
     left_col: Vec<TileData>,
     right_col: Vec<TileData>,
     cards: Vec<CardData>,
+    hovered_card: Option<usize>,
 }
 
 #[derive(Clone, Copy)]
@@ -401,8 +402,42 @@ fn start_match(
                         ..Default::default()
                     })
                     .insert(Card)
-                    .with_children(|parent| {
-                        // ...
+                    .with_children(|parent| match card_action {
+                        Action::SwapFirstAndLast { side } => {}
+                        Action::SwapTwoAdjacent { top, side } => {}
+                        Action::SwapTwoNatures {
+                            nature_a,
+                            nature_b,
+                            side,
+                        } => {}
+                        Action::Cycle {
+                            times,
+                            direction,
+                            side,
+                        } => {
+                            parent.spawn_bundle(SpriteBundle {
+                                transform: Transform {
+                                    translation: Vec3::new(
+                                        match side {
+                                            TileSide::Left => -15.,
+                                            TileSide::Right => 15.,
+                                        },
+                                        0.,
+                                        10.,
+                                    ),
+                                    ..Default::default()
+                                },
+                                sprite: Sprite {
+                                    custom_size: Some(Vec2::new(110., 110.)),
+                                    ..Default::default()
+                                },
+                                texture: asset_server.load(match direction {
+                                    CycleDirection::Up => "card_cycle_up.png",
+                                    CycleDirection::Down => "card_cycle_down.png",
+                                }),
+                                ..Default::default()
+                            });
+                        }
                     })
                     .id(),
             });
@@ -412,16 +447,102 @@ fn start_match(
             left_col,
             right_col,
             cards,
+            hovered_card: Some(0),
         });
     }
 }
 
-fn handle_input(keyboard_input: Res<Input<KeyCode>>) {
-    if keyboard_input.just_pressed(KeyCode::Left) {}
+fn handle_input(keyboard_input: Res<Input<KeyCode>>, mut match_state: ResMut<MatchState>) {
+    if keyboard_input.just_pressed(KeyCode::Left) {
+        match match_state.as_mut() {
+            MatchState::Playing(match_state) => {
+                if let Some(hovered_card) = &mut match_state.hovered_card {
+                    *hovered_card = {
+                        if *hovered_card == 0 {
+                            match_state.cards.len() - 1
+                        } else {
+                            *hovered_card - 1
+                        }
+                    };
+                }
+            }
+            _ => (),
+        }
+    }
 
-    if keyboard_input.just_pressed(KeyCode::Right) {}
+    if keyboard_input.just_pressed(KeyCode::Right) {
+        match match_state.as_mut() {
+            MatchState::Playing(match_state) => {
+                if let Some(hovered_card) = &mut match_state.hovered_card {
+                    *hovered_card = {
+                        if *hovered_card == match_state.cards.len() - 1 {
+                            0
+                        } else {
+                            *hovered_card + 1
+                        }
+                    };
+                }
+            }
+            _ => (),
+        }
+    }
 
     if keyboard_input.just_pressed(KeyCode::Space) || keyboard_input.just_pressed(KeyCode::Return) {
+        match match_state.as_mut() {
+            MatchState::Playing(match_state) => {
+                // ...
+            }
+            _ => (),
+        }
+    }
+}
+
+#[derive(Component)]
+struct Cursor;
+
+const CURSOR_Y_POS: f32 = -500.;
+
+fn setup_cursor(mut commands: Commands, asset_server: Res<AssetServer>) {
+    commands
+        .spawn_bundle(SpriteBundle {
+            sprite: Sprite {
+                custom_size: Some(Vec2::new(30., 30.)),
+                ..Default::default()
+            },
+            texture: asset_server.load("cursor.png"),
+            visibility: Visibility { is_visible: false },
+            ..Default::default()
+        })
+        .insert(Cursor);
+}
+
+// on match_state changed
+fn update_cursor(
+    mut q_cursor: Query<(&mut Transform, &mut Visibility), With<Cursor>>,
+    match_state: Res<MatchState>,
+) {
+    let (mut transform, mut visibility) = q_cursor.single_mut();
+    match match_state.as_ref() {
+        MatchState::Ready => {
+            visibility.is_visible = false;
+        }
+        MatchState::Playing(match_state) => {
+            match match_state.hovered_card {
+                Some(i) => {
+                    let tot_card_len = CARDS_GAP * ((match_state.cards.len() - 1) as f32);
+                    transform.translation = Vec3::new(
+                        (tot_card_len / ((match_state.cards.len() - 1) as f32) * (i as f32))
+                            - (tot_card_len / 2.),
+                        CURSOR_Y_POS,
+                        10.,
+                    );
+                }
+                None => {
+                    visibility.is_visible = false;
+                }
+            }
+            visibility.is_visible = true;
+        }
     }
 }
 
@@ -431,7 +552,9 @@ fn main() {
         .add_event::<StartMatchEvent>()
         .insert_resource(ClearColor(BACKGROUND_COLOR))
         .add_startup_system(setup)
+        .add_startup_system(setup_cursor)
         .add_system(start_match)
         .add_system(handle_input)
+        .add_system(update_cursor)
         .run();
 }
