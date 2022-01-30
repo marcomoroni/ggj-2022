@@ -6,29 +6,33 @@ use bevy::{prelude::*, text::Text2dSize};
 use physics::spring::SpringSimulation;
 use rand::prelude::*;
 
-const BACKGROUND_COLOR: Color = Color::rgb(0.05, 0.05, 0.05);
-const TILES_LEFT: [&str; 6] = [
+const BACKGROUND_COLOR: Color = Color::rgb(0.866666666667, 0.8, 0.686274509804);
+const TILES_LEFT: [&str; 8] = [
     "tile_a_l.png",
     "tile_b_l.png",
     "tile_c_l.png",
     "tile_d_l.png",
     "tile_e_l.png",
     "tile_f_l.png",
+    "tile_g_l.png",
+    "tile_h_l.png",
 ];
-const TILES_RIGHT: [&str; 6] = [
+const TILES_RIGHT: [&str; 8] = [
     "tile_a_r.png",
     "tile_b_r.png",
     "tile_c_r.png",
     "tile_d_r.png",
     "tile_e_r.png",
     "tile_f_r.png",
+    "tile_g_r.png",
+    "tile_h_r.png",
 ];
 
 const fn nature_count() -> usize {
     TILES_LEFT.len()
 }
 
-const CARDS_GAP: f32 = 140.;
+const CARDS_GAP: f32 = 180.;
 
 enum MatchState {
     Ready,
@@ -220,14 +224,16 @@ fn setup(mut commands: Commands, mut start_match_event: EventWriter<StartMatchEv
 }
 
 const TILE_POS_X_ABS: f32 = 200.;
-const TILE_POS_Y_GAP: f32 = 120.;
+const TILE_POS_Y_GAP: f32 = 170.;
 
 fn tiles_layout_poss(gap: f32, count: usize) -> (Vec<Vec2>, Vec<Vec2>) {
+    let y_adjust = 150.;
     let tot_col_height = gap * ((count - 1) as f32);
     let mut l = Vec::new();
     let mut r = Vec::new();
     for i in 0..count {
-        let pos_y = (tot_col_height / ((count - 1) as f32) * (i as f32)) - (tot_col_height / 2.);
+        let pos_y =
+            (tot_col_height / ((count - 1) as f32) * (i as f32)) - (tot_col_height / 2.) + y_adjust;
         l.push(Vec2::new(-TILE_POS_X_ABS, pos_y));
         r.push(Vec2::new(TILE_POS_X_ABS, pos_y));
     }
@@ -249,7 +255,7 @@ fn spawn_tile(
                 ..Default::default()
             },
             sprite: Sprite {
-                custom_size: Some(Vec2::new(40., 40.)),
+                custom_size: Some(Vec2::new(150., 150.)),
                 ..Default::default()
             },
             texture: asset_server.load(match side {
@@ -281,6 +287,7 @@ fn start_match(
     mut start_match_event: EventReader<StartMatchEvent>,
     asset_server: Res<AssetServer>,
     mut match_state: ResMut<MatchState>,
+    mut event_update_cards_style: EventWriter<UpdateCardsStyle>,
 ) {
     for _ in start_match_event.iter() {
         let tiles_count = 4;
@@ -408,14 +415,14 @@ fn start_match(
                             translation: Vec3::new(
                                 (tot_card_len / ((card_count - 1) as f32) * (i as f32))
                                     - (tot_card_len / 2.),
-                                -400.,
+                                -370.,
                                 0.,
                             ),
 
                             ..Default::default()
                         },
                         sprite: Sprite {
-                            custom_size: Some(Vec2::new(160., 160.)),
+                            custom_size: Some(Vec2::new(270., 270.)),
                             ..Default::default()
                         },
                         texture: asset_server.load("card_bg.png"),
@@ -537,6 +544,8 @@ fn start_match(
             cards,
             hovered_card: Some(0),
         });
+
+        event_update_cards_style.send(UpdateCardsStyle);
     }
 }
 
@@ -544,6 +553,7 @@ fn handle_input(
     keyboard_input: Res<Input<KeyCode>>,
     mut match_state: ResMut<MatchState>,
     mut update_tiles_position_event: EventWriter<UpdateTilesPosition>,
+    mut event_update_cards_style: EventWriter<UpdateCardsStyle>,
 ) {
     if keyboard_input.just_pressed(KeyCode::Left) {
         match match_state.as_mut() {
@@ -557,6 +567,7 @@ fn handle_input(
                         }
                     };
                 }
+                event_update_cards_style.send(UpdateCardsStyle);
             }
             _ => (),
         }
@@ -574,6 +585,7 @@ fn handle_input(
                         }
                     };
                 }
+                event_update_cards_style.send(UpdateCardsStyle);
             }
             _ => (),
         }
@@ -615,6 +627,8 @@ fn handle_input(
                             info!("Retry");
                         }
                     }
+
+                    event_update_cards_style.send(UpdateCardsStyle);
                 }
             }
             _ => (),
@@ -625,7 +639,7 @@ fn handle_input(
 #[derive(Component)]
 struct Cursor;
 
-const CURSOR_Y_POS: f32 = -500.;
+const CURSOR_Y_POS: f32 = -510.;
 
 fn setup_cursor(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands
@@ -712,11 +726,58 @@ fn update_tiles_position(
     }
 }
 
+struct UpdateCardsStyle;
+
+fn update_cards_style(
+    mut update_cards_position_event: EventReader<UpdateCardsStyle>,
+    match_state: Res<MatchState>,
+    mut q: Query<(Entity, &mut Transform), With<Card>>,
+) {
+    for _ in update_cards_position_event.iter() {
+        match match_state.as_ref() {
+            MatchState::Playing(match_state) => {
+                for (entity, mut transform) in q.iter_mut() {
+                    let is_hovered = match match_state.hovered_card {
+                        Some(i) => match_state.cards[i].id == entity,
+                        None => false,
+                    };
+                    let is_used = match_state
+                        .cards
+                        .iter()
+                        .find_map(|c| {
+                            if c.id == entity {
+                                Some(match c.used {
+                                    Some(_) => true,
+                                    None => false,
+                                })
+                            } else {
+                                None
+                            }
+                        })
+                        .unwrap();
+
+                    let scale = if is_used {
+                        0.7
+                    } else if is_hovered {
+                        1.1
+                    } else {
+                        1.
+                    };
+                    transform.scale = Vec3::new(scale, scale, scale);
+                }
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
 fn main() {
     App::new()
+        .insert_resource(Msaa { samples: 4 })
         .add_plugins(DefaultPlugins)
         .add_event::<StartMatchEvent>()
         .add_event::<UpdateTilesPosition>()
+        .add_event::<UpdateCardsStyle>()
         .insert_resource(ClearColor(BACKGROUND_COLOR))
         .add_startup_system(setup)
         .add_startup_system(setup_cursor)
@@ -724,5 +785,6 @@ fn main() {
         .add_system(handle_input)
         .add_system(update_cursor)
         .add_system(update_tiles_position)
+        .add_system(update_cards_style)
         .run();
 }
