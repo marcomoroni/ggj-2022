@@ -407,12 +407,12 @@ fn start_match(
         let tot_card_len = CARDS_GAP * ((card_count - 1) as f32);
         let mut cards = Vec::new();
         let card_size = 270.;
-        let card_illustration_full_col_gap = 40.;
+        let card_illustration_full_col_gap = 45.;
         let card_illustration_full_col_height =
-            card_illustration_full_col_gap * ((card_count - 1) as f32);
-        let card_illustration_full_col_pos = (0..card_count)
+            card_illustration_full_col_gap * ((tiles_count - 1) as f32);
+        let card_illustration_full_col_pos = (0..tiles_count)
             .map(|i| {
-                card_illustration_full_col_height / ((card_count - 1) as f32) * (i as f32)
+                card_illustration_full_col_height / ((tiles_count - 1) as f32) * (i as f32)
                     - (card_illustration_full_col_height / 2.)
             })
             .collect::<Vec<f32>>();
@@ -452,7 +452,7 @@ fn start_match(
                                     TileSide::Right => 15.,
                                 };
 
-                                for i in 0..card_count {
+                                for i in 0..tiles_count {
                                     parent.spawn_bundle(SpriteBundle {
                                         transform: Transform {
                                             translation: Vec3::new(
@@ -465,14 +465,14 @@ fn start_match(
                                         sprite: sprite.clone(),
                                         texture: asset_server.load(match side {
                                             TileSide::Left => {
-                                                if i == 0 || i == card_count - 1 {
+                                                if i == 0 || i == tiles_count - 1 {
                                                     "tile_any_l.png"
                                                 } else {
                                                     "tile_empty_l.png"
                                                 }
                                             }
                                             TileSide::Right => {
-                                                if i == 0 || i == card_count - 1 {
+                                                if i == 0 || i == tiles_count - 1 {
                                                     "tile_any_r.png"
                                                 } else {
                                                     "tile_empty_r.png"
@@ -522,7 +522,7 @@ fn start_match(
                                     TileSide::Right => 15.,
                                 };
 
-                                for i in 0..card_count {
+                                for i in 0..tiles_count {
                                     parent.spawn_bundle(SpriteBundle {
                                         transform: Transform {
                                             translation: Vec3::new(
@@ -687,7 +687,7 @@ fn start_match(
                                     TileSide::Right => 15.,
                                 };
 
-                                for i in 0..card_count {
+                                for i in 0..tiles_count {
                                     parent.spawn_bundle(SpriteBundle {
                                         transform: Transform {
                                             translation: Vec3::new(
@@ -743,32 +743,32 @@ fn start_match(
                             }
                         };
 
-                        parent.spawn_bundle(Text2dBundle {
-                            text: Text::with_section(
-                                card_as_text,
-                                TextStyle {
-                                    font: asset_server.load("ReadexPro-Regular.ttf"),
-                                    font_size: 20.,
-                                    color: Color::FUCHSIA,
-                                },
-                                TextAlignment {
-                                    vertical: VerticalAlign::Center,
-                                    horizontal: HorizontalAlign::Center,
-                                },
-                            ),
-                            text_2d_size: Text2dSize {
-                                size: Size {
-                                    width: 200.,
-                                    ..Default::default()
-                                },
-                            },
-                            transform: Transform {
-                                translation: Vec3::new(-10., 0., 20.),
-                                rotation: Quat::from_rotation_z(PI / 4.),
-                                ..Default::default()
-                            },
-                            ..Default::default()
-                        });
+                        // parent.spawn_bundle(Text2dBundle {
+                        //     text: Text::with_section(
+                        //         card_as_text,
+                        //         TextStyle {
+                        //             font: asset_server.load("ReadexPro-Regular.ttf"),
+                        //             font_size: 20.,
+                        //             color: Color::FUCHSIA,
+                        //         },
+                        //         TextAlignment {
+                        //             vertical: VerticalAlign::Center,
+                        //             horizontal: HorizontalAlign::Center,
+                        //         },
+                        //     ),
+                        //     text_2d_size: Text2dSize {
+                        //         size: Size {
+                        //             width: 200.,
+                        //             ..Default::default()
+                        //         },
+                        //     },
+                        //     transform: Transform {
+                        //         translation: Vec3::new(-10., 0., 20.),
+                        //         rotation: Quat::from_rotation_z(PI / 4.),
+                        //         ..Default::default()
+                        //     },
+                        //     ..Default::default()
+                        // });
                     })
                     .id(),
             });
@@ -790,7 +790,12 @@ fn handle_input(
     mut match_state: ResMut<MatchState>,
     mut update_tiles_position_event: EventWriter<UpdateTilesPosition>,
     mut event_update_cards_style: EventWriter<UpdateCardsStyle>,
+    mut event_restart: EventWriter<RestartRequest>,
 ) {
+    if keyboard_input.just_pressed(KeyCode::R) {
+        event_restart.send(RestartRequest);
+    }
+
     if keyboard_input.just_pressed(KeyCode::Left) {
         match match_state.as_mut() {
             MatchState::Playing(match_state) => {
@@ -875,7 +880,7 @@ fn handle_input(
 #[derive(Component)]
 struct Cursor;
 
-const CURSOR_Y_POS: f32 = -510.;
+const CURSOR_Y_POS: f32 = -530.;
 
 fn setup_cursor(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands
@@ -1007,6 +1012,54 @@ fn update_cards_style(
     }
 }
 
+struct RestartRequest;
+
+fn restart(
+    mut ev: EventReader<RestartRequest>,
+    mut match_state: ResMut<MatchState>,
+    mut update_tiles_position_event: EventWriter<UpdateTilesPosition>,
+    mut event_update_cards_style: EventWriter<UpdateCardsStyle>,
+) {
+    for _ in ev.iter() {
+        // Undo all used cards in reverse order.
+        match match_state.as_mut() {
+            MatchState::Playing(match_state) => {
+                // While there are cards to undo.
+                while match_state
+                    .cards
+                    .iter()
+                    .any(|c| matches!(c.used, Option::Some(_)))
+                {
+                    let latest_used_idx = match_state
+                        .cards
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(i, c)| match c.used {
+                            Some(order) => Some((i, order)),
+                            None => None,
+                        })
+                        .max_by(|a, b| a.1.cmp(&b.1))
+                        .unwrap()
+                        .0;
+
+                    apply_inverse_action(
+                        &match_state.cards[latest_used_idx].action,
+                        &mut match_state.left_col,
+                        &mut match_state.right_col,
+                        Box::new(|x| x.nature),
+                    );
+
+                    match_state.cards[latest_used_idx].used = None;
+                }
+            }
+            MatchState::Ready => unreachable!(),
+        }
+
+        update_tiles_position_event.send(UpdateTilesPosition);
+        event_update_cards_style.send(UpdateCardsStyle);
+    }
+}
+
 fn main() {
     App::new()
         .insert_resource(Msaa { samples: 4 })
@@ -1014,6 +1067,7 @@ fn main() {
         .add_event::<StartMatchEvent>()
         .add_event::<UpdateTilesPosition>()
         .add_event::<UpdateCardsStyle>()
+        .add_event::<RestartRequest>()
         .insert_resource(ClearColor(BACKGROUND_COLOR))
         .add_startup_system(setup)
         .add_startup_system(setup_cursor)
@@ -1022,5 +1076,6 @@ fn main() {
         .add_system(update_cursor)
         .add_system(update_tiles_position)
         .add_system(update_cards_style)
+        .add_system(restart)
         .run();
 }
