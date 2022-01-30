@@ -137,10 +137,10 @@ fn apply_inverse_action<'a, T>(
                 TileSide::Right => right_col,
             };
             match direction {
-                CycleDirection::Up => {
+                CycleDirection::Down => {
                     col.rotate_right(*times as usize);
                 }
-                CycleDirection::Down => {
+                CycleDirection::Up => {
                     col.rotate_left(*times as usize);
                 }
             }
@@ -194,10 +194,10 @@ fn apply_action<'a, T>(
                 TileSide::Right => &mut right_col,
             };
             match direction {
-                CycleDirection::Up => {
+                CycleDirection::Down => {
                     col.rotate_left(*times as usize);
                 }
-                CycleDirection::Down => {
+                CycleDirection::Up => {
                     col.rotate_right(*times as usize);
                 }
             }
@@ -340,7 +340,8 @@ fn start_match(
                         }
                     }
                     3 => Action::Cycle {
-                        times: rng.gen_range(1, 4),
+                        // times: rng.gen_range(1, 4),
+                        times: 1,
                         direction: match rng.gen_range(0usize, 2usize) {
                             0 => CycleDirection::Up,
                             1 => CycleDirection::Down,
@@ -405,6 +406,16 @@ fn start_match(
         // Spawn cards.
         let tot_card_len = CARDS_GAP * ((card_count - 1) as f32);
         let mut cards = Vec::new();
+        let card_size = 270.;
+        let card_illustration_full_col_gap = 40.;
+        let card_illustration_full_col_height =
+            card_illustration_full_col_gap * ((card_count - 1) as f32);
+        let card_illustration_full_col_pos = (0..card_count)
+            .map(|i| {
+                card_illustration_full_col_height / ((card_count - 1) as f32) * (i as f32)
+                    - (card_illustration_full_col_height / 2.)
+            })
+            .collect::<Vec<f32>>();
         for (i, card_action) in card_actions.iter().enumerate() {
             cards.push(CardData {
                 action: card_action.clone(),
@@ -422,7 +433,7 @@ fn start_match(
                             ..Default::default()
                         },
                         sprite: Sprite {
-                            custom_size: Some(Vec2::new(270., 270.)),
+                            custom_size: Some(Vec2::new(card_size, card_size)),
                             ..Default::default()
                         },
                         texture: asset_server.load("card_bg.png"),
@@ -432,6 +443,67 @@ fn start_match(
                     .with_children(|parent| {
                         let card_as_text = match card_action {
                             Action::SwapFirstAndLast { side } => {
+                                let sprite = Sprite {
+                                    custom_size: Some(Vec2::new(30., 30.)),
+                                    ..Default::default()
+                                };
+                                let pos_x = match side {
+                                    TileSide::Left => -15.,
+                                    TileSide::Right => 15.,
+                                };
+
+                                for i in 0..card_count {
+                                    parent.spawn_bundle(SpriteBundle {
+                                        transform: Transform {
+                                            translation: Vec3::new(
+                                                pos_x,
+                                                card_illustration_full_col_pos[i],
+                                                10.,
+                                            ),
+                                            ..Default::default()
+                                        },
+                                        sprite: sprite.clone(),
+                                        texture: asset_server.load(match side {
+                                            TileSide::Left => {
+                                                if i == 0 || i == card_count - 1 {
+                                                    "tile_any_l.png"
+                                                } else {
+                                                    "tile_empty_l.png"
+                                                }
+                                            }
+                                            TileSide::Right => {
+                                                if i == 0 || i == card_count - 1 {
+                                                    "tile_any_r.png"
+                                                } else {
+                                                    "tile_empty_r.png"
+                                                }
+                                            }
+                                        }),
+                                        ..Default::default()
+                                    });
+                                }
+
+                                parent.spawn_bundle(SpriteBundle {
+                                    transform: Transform {
+                                        translation: Vec3::new(
+                                            match side {
+                                                TileSide::Left => -41.,
+                                                TileSide::Right => 41.,
+                                            },
+                                            0.,
+                                            10.,
+                                        ),
+
+                                        ..Default::default()
+                                    },
+                                    sprite: Sprite {
+                                        custom_size: Some(Vec2::new(card_size, card_size)),
+                                        ..Default::default()
+                                    },
+                                    texture: asset_server.load("swap_arrow.png"),
+                                    ..Default::default()
+                                });
+
                                 format!(
                                     "Swap first and last - {}",
                                     match side {
@@ -441,6 +513,67 @@ fn start_match(
                                 )
                             }
                             Action::SwapTwoAdjacent { top, side } => {
+                                let sprite = Sprite {
+                                    custom_size: Some(Vec2::new(30., 30.)),
+                                    ..Default::default()
+                                };
+                                let pos_x = match side {
+                                    TileSide::Left => -15.,
+                                    TileSide::Right => 15.,
+                                };
+
+                                for i in 0..card_count {
+                                    parent.spawn_bundle(SpriteBundle {
+                                        transform: Transform {
+                                            translation: Vec3::new(
+                                                pos_x,
+                                                card_illustration_full_col_pos[i],
+                                                10.,
+                                            ),
+                                            ..Default::default()
+                                        },
+                                        sprite: sprite.clone(),
+                                        texture: asset_server.load(match side {
+                                            TileSide::Left => {
+                                                if i == *top || i == *top + 1 {
+                                                    "tile_any_l.png"
+                                                } else {
+                                                    "tile_empty_l.png"
+                                                }
+                                            }
+                                            TileSide::Right => {
+                                                if i == *top || i == *top + 1 {
+                                                    "tile_any_r.png"
+                                                } else {
+                                                    "tile_empty_r.png"
+                                                }
+                                            }
+                                        }),
+                                        ..Default::default()
+                                    });
+                                }
+
+                                parent.spawn_bundle(SpriteBundle {
+                                    transform: Transform {
+                                        translation: Vec3::new(
+                                            match side {
+                                                TileSide::Left => -41.,
+                                                TileSide::Right => 41.,
+                                            },
+                                            0.,
+                                            10.,
+                                        ),
+
+                                        ..Default::default()
+                                    },
+                                    sprite: Sprite {
+                                        custom_size: Some(Vec2::new(card_size, card_size)),
+                                        ..Default::default()
+                                    },
+                                    texture: asset_server.load("swap_arrow.png"),
+                                    ..Default::default()
+                                });
+
                                 format!(
                                     "Swap {} and {} - {}",
                                     top,
@@ -456,6 +589,76 @@ fn start_match(
                                 nature_b,
                                 side,
                             } => {
+                                let tile_size = 38.;
+                                let pos_y_abs = 30.;
+
+                                parent.spawn_bundle(SpriteBundle {
+                                    transform: Transform {
+                                        translation: Vec3::new(
+                                            match side {
+                                                TileSide::Left => -tile_size / 2.,
+                                                TileSide::Right => tile_size / 2.,
+                                            },
+                                            -pos_y_abs,
+                                            10.,
+                                        ),
+                                        ..Default::default()
+                                    },
+                                    sprite: Sprite {
+                                        custom_size: Some(Vec2::new(tile_size, tile_size)),
+                                        ..Default::default()
+                                    },
+                                    texture: asset_server.load(match side {
+                                        TileSide::Left => TILES_LEFT[nature_a.0],
+                                        TileSide::Right => TILES_RIGHT[nature_a.0],
+                                    }),
+                                    ..Default::default()
+                                });
+
+                                parent.spawn_bundle(SpriteBundle {
+                                    transform: Transform {
+                                        translation: Vec3::new(
+                                            match side {
+                                                TileSide::Left => -tile_size / 2.,
+                                                TileSide::Right => tile_size / 2.,
+                                            },
+                                            pos_y_abs,
+                                            10.,
+                                        ),
+                                        ..Default::default()
+                                    },
+                                    sprite: Sprite {
+                                        custom_size: Some(Vec2::new(tile_size, tile_size)),
+                                        ..Default::default()
+                                    },
+                                    texture: asset_server.load(match side {
+                                        TileSide::Left => TILES_LEFT[nature_b.0],
+                                        TileSide::Right => TILES_RIGHT[nature_b.0],
+                                    }),
+                                    ..Default::default()
+                                });
+
+                                parent.spawn_bundle(SpriteBundle {
+                                    transform: Transform {
+                                        translation: Vec3::new(
+                                            match side {
+                                                TileSide::Left => -41.,
+                                                TileSide::Right => 41.,
+                                            },
+                                            0.,
+                                            10.,
+                                        ),
+
+                                        ..Default::default()
+                                    },
+                                    sprite: Sprite {
+                                        custom_size: Some(Vec2::new(card_size, card_size)),
+                                        ..Default::default()
+                                    },
+                                    texture: asset_server.load("swap_arrow.png"),
+                                    ..Default::default()
+                                });
+
                                 format!(
                                     "Swap {:?} and {:?} - {}",
                                     nature_a,
@@ -471,28 +674,60 @@ fn start_match(
                                 direction,
                                 side,
                             } => {
+                                let sprite = Sprite {
+                                    custom_size: Some(Vec2::new(30., 30.)),
+                                    ..Default::default()
+                                };
+                                let texture = asset_server.load(match side {
+                                    TileSide::Left => "tile_any_l.png",
+                                    TileSide::Right => "tile_any_r.png",
+                                });
+                                let pos_x = match side {
+                                    TileSide::Left => -15.,
+                                    TileSide::Right => 15.,
+                                };
+
+                                for i in 0..card_count {
+                                    parent.spawn_bundle(SpriteBundle {
+                                        transform: Transform {
+                                            translation: Vec3::new(
+                                                pos_x,
+                                                card_illustration_full_col_pos[i],
+                                                10.,
+                                            ),
+                                            ..Default::default()
+                                        },
+                                        sprite: sprite.clone(),
+                                        texture: texture.clone(),
+                                        ..Default::default()
+                                    });
+                                }
+
                                 parent.spawn_bundle(SpriteBundle {
                                     transform: Transform {
                                         translation: Vec3::new(
                                             match side {
-                                                TileSide::Left => -15.,
-                                                TileSide::Right => 15.,
+                                                TileSide::Left => -40.,
+                                                TileSide::Right => 40.,
                                             },
                                             0.,
                                             10.,
                                         ),
+
                                         ..Default::default()
                                     },
                                     sprite: Sprite {
-                                        custom_size: Some(Vec2::new(110., 110.)),
+                                        custom_size: Some(Vec2::new(card_size, card_size)),
+                                        flip_y: match direction {
+                                            CycleDirection::Up => false,
+                                            CycleDirection::Down => true,
+                                        },
                                         ..Default::default()
                                     },
-                                    texture: asset_server.load(match direction {
-                                        CycleDirection::Up => "card_cycle_up.png",
-                                        CycleDirection::Down => "card_cycle_down.png",
-                                    }),
+                                    texture: asset_server.load("cycle_arrow.png"),
                                     ..Default::default()
                                 });
+
                                 format!(
                                     "Cycle {} x {} - {}",
                                     match direction {
@@ -507,6 +742,7 @@ fn start_match(
                                 )
                             }
                         };
+
                         parent.spawn_bundle(Text2dBundle {
                             text: Text::with_section(
                                 card_as_text,
