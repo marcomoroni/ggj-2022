@@ -787,10 +787,12 @@ fn start_match(
 
 fn handle_input(
     keyboard_input: Res<Input<KeyCode>>,
+    mut commands: Commands,
     mut match_state: ResMut<MatchState>,
     mut update_tiles_position_event: EventWriter<UpdateTilesPosition>,
     mut event_update_cards_style: EventWriter<UpdateCardsStyle>,
     mut event_restart: EventWriter<RestartRequest>,
+    asset_server: Res<AssetServer>,
 ) {
     if keyboard_input.just_pressed(KeyCode::R) {
         event_restart.send(RestartRequest);
@@ -864,8 +866,34 @@ fn handle_input(
                             .all(|(l, r)| l.nature == r.nature);
                         if natures_in_the_columns_match {
                             info!("Victory");
-                        } else {
-                            info!("Retry");
+                            commands.spawn_bundle(Text2dBundle {
+                                text: Text::with_section(
+                                    "Yay!".to_string(),
+                                    TextStyle {
+                                        font: asset_server.load("ReadexPro-Regular.ttf"),
+                                        font_size: 30.,
+                                        color: Color::BLACK,
+                                    },
+                                    TextAlignment {
+                                        vertical: VerticalAlign::Center,
+                                        horizontal: HorizontalAlign::Center,
+                                    },
+                                ),
+                                text_2d_size: Text2dSize {
+                                    size: Size {
+                                        width: 200.,
+                                        ..Default::default()
+                                    },
+                                },
+                                transform: Transform {
+                                    translation: Vec3::new(0., 0., 50.),
+                                    ..Default::default()
+                                },
+                                ..Default::default()
+                            });
+                            commands.spawn().insert(VictoryScreen {
+                                timer: Timer::from_seconds(2., false),
+                            });
                         }
                     }
 
@@ -1060,6 +1088,43 @@ fn restart(
     }
 }
 
+#[derive(Component)]
+struct VictoryScreen {
+    timer: Timer,
+}
+
+fn victory_screen(
+    mut q: Query<(Entity, &mut VictoryScreen)>,
+    time: Res<Time>,
+    mut commands: Commands,
+    mut ev: EventWriter<StartMatchEvent>,
+    mut ev_despawn_all: EventWriter<DespawnAll>,
+    mut state: ResMut<MatchState>,
+) {
+    if let Ok(mut q) = q.get_single_mut() {
+        if q.1.timer.tick(time.delta()).just_finished() {
+            commands.entity(q.0).despawn();
+            ev_despawn_all.send(DespawnAll);
+            *state = MatchState::Ready;
+            ev.send(StartMatchEvent);
+        }
+    }
+}
+
+struct DespawnAll;
+
+fn despawn_all<T: Component>(
+    mut ev: EventReader<DespawnAll>,
+    q: Query<Entity, With<T>>,
+    mut commands: Commands,
+) {
+    for _ in ev.iter() {
+        for e in q.iter() {
+            commands.entity(e).despawn();
+        }
+    }
+}
+
 fn main() {
     App::new()
         .insert_resource(Msaa { samples: 4 })
@@ -1068,6 +1133,7 @@ fn main() {
         .add_event::<UpdateTilesPosition>()
         .add_event::<UpdateCardsStyle>()
         .add_event::<RestartRequest>()
+        .add_event::<DespawnAll>()
         .insert_resource(ClearColor(BACKGROUND_COLOR))
         .add_startup_system(setup)
         .add_startup_system(setup_cursor)
@@ -1077,5 +1143,8 @@ fn main() {
         .add_system(update_tiles_position)
         .add_system(update_cards_style)
         .add_system(restart)
+        .add_system(victory_screen)
+        .add_system(despawn_all::<Tile>)
+        .add_system(despawn_all::<Card>)
         .run();
 }
