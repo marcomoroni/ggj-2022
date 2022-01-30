@@ -1,6 +1,8 @@
 mod physics;
 
-use bevy::prelude::*;
+use std::f32::consts::PI;
+
+use bevy::{prelude::*, text::Text2dSize};
 use physics::spring::SpringSimulation;
 use rand::prelude::*;
 
@@ -46,7 +48,7 @@ struct TileData {
     nature: TileNature,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 struct TileNature(usize);
 
 #[derive(Clone, Copy)]
@@ -409,6 +411,7 @@ fn start_match(
                                 -400.,
                                 0.,
                             ),
+
                             ..Default::default()
                         },
                         sprite: Sprite {
@@ -419,42 +422,110 @@ fn start_match(
                         ..Default::default()
                     })
                     .insert(Card)
-                    .with_children(|parent| match card_action {
-                        Action::SwapFirstAndLast { side } => {}
-                        Action::SwapTwoAdjacent { top, side } => {}
-                        Action::SwapTwoNatures {
-                            nature_a,
-                            nature_b,
-                            side,
-                        } => {}
-                        Action::Cycle {
-                            times,
-                            direction,
-                            side,
-                        } => {
-                            parent.spawn_bundle(SpriteBundle {
-                                transform: Transform {
-                                    translation: Vec3::new(
-                                        match side {
-                                            TileSide::Left => -15.,
-                                            TileSide::Right => 15.,
-                                        },
-                                        0.,
-                                        10.,
-                                    ),
+                    .with_children(|parent| {
+                        let card_as_text = match card_action {
+                            Action::SwapFirstAndLast { side } => {
+                                format!(
+                                    "Swap first and last - {}",
+                                    match side {
+                                        TileSide::Left => "left",
+                                        TileSide::Right => "right",
+                                    }
+                                )
+                            }
+                            Action::SwapTwoAdjacent { top, side } => {
+                                format!(
+                                    "Swap {} and {} - {}",
+                                    top,
+                                    top + 1,
+                                    match side {
+                                        TileSide::Left => "left",
+                                        TileSide::Right => "right",
+                                    }
+                                )
+                            }
+                            Action::SwapTwoNatures {
+                                nature_a,
+                                nature_b,
+                                side,
+                            } => {
+                                format!(
+                                    "Swap {:?} and {:?} - {}",
+                                    nature_a,
+                                    nature_b,
+                                    match side {
+                                        TileSide::Left => "left",
+                                        TileSide::Right => "right",
+                                    }
+                                )
+                            }
+                            Action::Cycle {
+                                times,
+                                direction,
+                                side,
+                            } => {
+                                parent.spawn_bundle(SpriteBundle {
+                                    transform: Transform {
+                                        translation: Vec3::new(
+                                            match side {
+                                                TileSide::Left => -15.,
+                                                TileSide::Right => 15.,
+                                            },
+                                            0.,
+                                            10.,
+                                        ),
+                                        ..Default::default()
+                                    },
+                                    sprite: Sprite {
+                                        custom_size: Some(Vec2::new(110., 110.)),
+                                        ..Default::default()
+                                    },
+                                    texture: asset_server.load(match direction {
+                                        CycleDirection::Up => "card_cycle_up.png",
+                                        CycleDirection::Down => "card_cycle_down.png",
+                                    }),
+                                    ..Default::default()
+                                });
+                                format!(
+                                    "Cycle {} x {} - {}",
+                                    match direction {
+                                        CycleDirection::Up => "up",
+                                        CycleDirection::Down => "down",
+                                    },
+                                    times,
+                                    match side {
+                                        TileSide::Left => "left",
+                                        TileSide::Right => "right",
+                                    }
+                                )
+                            }
+                        };
+                        parent.spawn_bundle(Text2dBundle {
+                            text: Text::with_section(
+                                card_as_text,
+                                TextStyle {
+                                    font: asset_server.load("ReadexPro-Regular.ttf"),
+                                    font_size: 20.,
+                                    color: Color::FUCHSIA,
+                                },
+                                TextAlignment {
+                                    vertical: VerticalAlign::Center,
+                                    horizontal: HorizontalAlign::Center,
+                                },
+                            ),
+                            text_2d_size: Text2dSize {
+                                size: Size {
+                                    width: 200.,
                                     ..Default::default()
                                 },
-                                sprite: Sprite {
-                                    custom_size: Some(Vec2::new(110., 110.)),
-                                    ..Default::default()
-                                },
-                                texture: asset_server.load(match direction {
-                                    CycleDirection::Up => "card_cycle_up.png",
-                                    CycleDirection::Down => "card_cycle_down.png",
-                                }),
+                            },
+                            transform: Transform {
+                                translation: Vec3::new(-10., 0., 20.),
+                                rotation: Quat::from_rotation_z(PI / 4.),
                                 ..Default::default()
-                            });
-                        }
+                            },
+                            ..Default::default()
+                        });
                     })
                     .id(),
             });
@@ -531,6 +602,18 @@ fn handle_input(
 
                         // Update cards position.
                         update_tiles_position_event.send(UpdateTilesPosition);
+
+                        // Check for victory.
+                        let natures_in_the_columns_match = match_state
+                            .left_col
+                            .iter()
+                            .zip(match_state.right_col.iter())
+                            .all(|(l, r)| l.nature == r.nature);
+                        if natures_in_the_columns_match {
+                            info!("Victory");
+                        } else {
+                            info!("Retry");
+                        }
                     }
                 }
             }
